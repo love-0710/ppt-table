@@ -1,16 +1,21 @@
-# Complete CSV Comparison Tool with HTML Report and Screenshot Proofs
-
+# Required packages
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import seaborn as sns
 from jinja2 import Environment, FileSystemLoader
+import numpy as np
+import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
+from PIL import Image
 
-# Setup paths
+# Paths
 before_folder = "before"
 after_folder = "after"
-screenshot_dir = "screenshots"
-template_folder = "templates"
+output_dir = "output"
+template_folder = os.path.join(output_dir, "templates")
+screenshot_dir = os.path.join(output_dir, "screenshots")
+os.makedirs(output_dir, exist_ok=True)
 os.makedirs(template_folder, exist_ok=True)
 os.makedirs(screenshot_dir, exist_ok=True)
 
@@ -28,12 +33,11 @@ with open(os.path.join(template_folder, "report_template.html"), "w") as f:
 <head>
     <title>CSV Comparison Report</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        h1, h2 { color: #333; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 30px; }
+        body { font-family: Arial; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; }
         th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
-        .pie-chart { max-width: 400px; margin-bottom: 30px; }
+        .pie-chart { width: 400px; margin: 20px 0; }
     </style>
 </head>
 <body>
@@ -42,14 +46,13 @@ with open(os.path.join(template_folder, "report_template.html"), "w") as f:
     <p>Total Files Compared: {{ total }}</p>
     <p>Matched Files: {{ match }}</p>
     <p>Mismatched Files: {{ mismatch }}</p>
-
     <div class="pie-chart">
         <img src="pie_chart.png" alt="Pie Chart">
     </div>
 
     <h2>Matched Files</h2>
     <table>
-        <tr><th>File Name</th><th>Status</th><th>Total Rows in BEFORE</th><th>Missing Rows in AFTER</th></tr>
+        <tr><th>File Name</th><th>Status</th><th>Total Rows</th><th>Missing Rows</th></tr>
         {% for row in matched %}
         <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td></tr>
         {% endfor %}
@@ -57,9 +60,9 @@ with open(os.path.join(template_folder, "report_template.html"), "w") as f:
 
     <h2>Mismatched Files</h2>
     <table>
-        <tr><th>File Name</th><th>Row Number</th><th>Column Name</th><th>Mismatch Reason</th><th>Proof</th></tr>
+        <tr><th>File Name</th><th>Row Number</th><th>Column</th><th>Reason</th><th>Proof</th></tr>
         {% for row in mismatched %}
-        <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td><td><img src="{{ row[4] }}" width="200"></td></tr>
+        <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td><td><img src="screenshots/{{ row[4] }}" width="400"></td></tr>
         {% endfor %}
     </table>
 </body>
@@ -67,114 +70,111 @@ with open(os.path.join(template_folder, "report_template.html"), "w") as f:
 """)
 
 def normalize(val):
-    if pd.isna(val): return "NaN"
-    val = str(val).strip().replace(",", "").lstrip("0").replace("-", "/")
-    if "/" in val:
-        parts = val.split("/")
-        parts = [str(int(p)) for p in parts if p.isdigit()]
-        return "/".join(parts)
+    if isinstance(val, str):
+        val = val.strip()
+        val = val.replace(",", "")
+        if "/" in val and len(val.split("/")) == 3:
+            parts = [p.zfill(2) for p in val.split("/")]
+            val = "/".join(parts)
     return val
 
-def create_comparison_screenshot(df_before, df_after, file_name):
-    fig, axes = plt.subplots(ncols=2, figsize=(12, 4))
-    canvas = FigureCanvas(fig)
+def generate_screenshot(df1, df2, mismatch_idx, mismatch_col, file_name):
+    fig = plt.figure(figsize=(12, 2))
+    gs = gridspec.GridSpec(1, 2)
 
-    for ax, df, title in zip(axes, [df_before, df_after], ["Before", "After"]):
-        ax.axis('tight')
-        ax.axis('off')
-        table = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center')
-        table.scale(1, 1.5)
-        for i in range(len(df_before)):
-            for j, col in enumerate(df.columns):
-                v1 = normalize(df_before.iloc[i, j])
-                v2 = normalize(df_after.iloc[i, j])
-                if v1 != v2:
-                    table[(i+1, j)].set_facecolor('red')
-        ax.set_title(title)
+    ax1 = plt.subplot(gs[0, 0])
+    ax2 = plt.subplot(gs[0, 1])
 
-    screenshot_path = os.path.join(screenshot_dir, f"{file_name}_diff.png")
-    fig.tight_layout()
-    fig.subplots_adjust(top=0.75)
-    canvas.print_figure(screenshot_path, bbox_inches='tight')
-    plt.close(fig)
-    return screenshot_path
+    df1_row = df1.iloc[mismatch_idx].to_frame().T
+    df2_row = df2.iloc[mismatch_idx].to_frame().T
+
+    sns.heatmap(pd.isnull(df1_row), cbar=False, ax=ax1, annot=df1_row.values, fmt='', cmap="Reds")
+    sns.heatmap(pd.isnull(df2_row), cbar=False, ax=ax2, annot=df2_row.values, fmt='', cmap="Reds")
+    ax1.set_title("Before")
+    ax2.set_title("After")
+
+    ax1.tick_params(left=False, bottom=False)
+    ax2.tick_params(left=False, bottom=False)
+
+    for ax in [ax1, ax2]:
+        ax.set_xticklabels(df1.columns, rotation=45, ha='right')
+        ax.set_yticks([])
+
+    screenshot_name = f"{file_name.replace('.csv','')}_row{mismatch_idx}_{mismatch_col}.png"
+    plt.tight_layout()
+    plt.savefig(os.path.join(screenshot_dir, screenshot_name))
+    plt.close()
+    return screenshot_name
 
 def compare_csv(file_name):
-    global summary_stats
     path_before = os.path.join(before_folder, file_name)
     path_after = os.path.join(after_folder, file_name)
 
     try:
-        df_before = pd.read_csv(path_before, dtype=str).fillna("NaN")
-        df_after = pd.read_csv(path_after, dtype=str).fillna("NaN")
+        df_before = pd.read_csv(path_before, dtype=str).fillna("NaN").applymap(normalize)
+        df_after = pd.read_csv(path_after, dtype=str).fillna("NaN").applymap(normalize)
     except Exception as e:
         mismatch_report.append([file_name, "N/A", "N/A", f"Read error: {e}", ""])
+        summary_stats["mismatch"] += 1
+        return
+
+    if list(df_before.columns) != list(df_after.columns):
+        extra_cols = set(df_after.columns) - set(df_before.columns)
+        for col in extra_cols:
+            mismatch_report.append([file_name, "N/A", col, "Extra column in AFTER", ""])
         summary_stats["mismatch"] += 1
         return
 
     df_before.sort_values(by=list(df_before.columns), inplace=True, ignore_index=True)
     df_after.sort_values(by=list(df_after.columns), inplace=True, ignore_index=True)
 
-    cols_before, cols_after = list(df_before.columns), list(df_after.columns)
-
-    if cols_before != cols_after:
-        extra_cols = set(cols_after) - set(cols_before)
-        for col in extra_cols:
-            mismatch_report.append([file_name, "N/A", col, "Extra column in AFTER", ""])
+    if len(df_after) > len(df_before):
+        mismatch_report.append([file_name, "N/A", "N/A", "AFTER has more rows than BEFORE", ""])
         summary_stats["mismatch"] += 1
         return
 
     has_mismatch = False
-    screenshot_path = ""
-    for idx in range(min(len(df_after), len(df_before))):
-        for col in cols_before:
-            val_before = normalize(df_before.iloc[idx][col])
-            val_after = normalize(df_after.iloc[idx][col])
-            if val_before != val_after:
-                if not screenshot_path:
-                    screenshot_path = create_comparison_screenshot(df_before, df_after, file_name)
-                mismatch_report.append([file_name, idx, col, f"Mismatch | Before: {val_before} | After: {val_after}", screenshot_path])
+    for idx in range(len(df_after)):
+        row_before = df_before.iloc[idx]
+        row_after = df_after.iloc[idx]
+        for col in df_before.columns:
+            if row_before[col] != row_after[col]:
+                screenshot_file = generate_screenshot(df_before, df_after, idx, col, file_name)
+                mismatch_report.append([file_name, idx, col,
+                    f"Mismatch | Before: {row_before[col]} | After: {row_after[col]}", screenshot_file])
                 has_mismatch = True
 
-    if len(df_after) > len(df_before):
-        mismatch_report.append([file_name, "N/A", "N/A", "AFTER has more rows", ""])
-        has_mismatch = True
-    elif len(df_before) > len(df_after):
-        extra_rows = list(range(len(df_after), len(df_before)))
-        extra_rows_info.append(f"File: {file_name}\nExtra rows in BEFORE: {extra_rows}\n{'*'*40}\n")
+    extra_rows = list(range(len(df_after), len(df_before)))
+    if extra_rows:
+        extra_rows_info.append(f"File: {file_name}\nExtra rows in BEFORE: {extra_rows}\n{'*'*50}\n")
 
     if has_mismatch:
         summary_stats["mismatch"] += 1
     else:
-        match_report.append([file_name, "Match", len(df_before), "None"])
+        match_report.append([file_name, "Match", len(df_before), extra_rows if extra_rows else "None"])
         summary_stats["match"] += 1
 
-# Main execution
-before_files = set(os.listdir(before_folder))
-after_files = set(os.listdir(after_folder))
-common_files = sorted(before_files.intersection(after_files))
-
+# Run comparisons
+common_files = sorted(set(os.listdir(before_folder)).intersection(os.listdir(after_folder)))
 for file in common_files:
     if file.endswith(".csv"):
         compare_csv(file)
 
 # Save reports
-pd.DataFrame(match_report, columns=["File Name", "Status", "Total Rows in BEFORE", "Missing Rows in AFTER"]).to_csv("match_report.csv", index=False)
-pd.DataFrame(mismatch_report, columns=["File Name", "Row Number", "Column Name", "Mismatch Reason", "Proof"]).to_csv("mismatch_report.csv", index=False)
-with open("extra_rows_in_before.txt", "w") as f:
+pd.DataFrame(match_report, columns=["File Name", "Status", "Total Rows in BEFORE", "Missing Rows in AFTER"]).to_csv(os.path.join(output_dir, "match_report.csv"), index=False)
+pd.DataFrame(mismatch_report, columns=["File Name", "Row Number", "Column Name", "Mismatch Reason", "Proof"]).to_csv(os.path.join(output_dir, "mismatch_report.csv"), index=False)
+with open(os.path.join(output_dir, "extra_rows_in_before.txt"), "w") as f:
     f.writelines(extra_rows_info)
 
 # Pie chart
-labels = ["Matched", "Mismatched"]
-sizes = [summary_stats["match"], summary_stats["mismatch"]]
-colors = ["green", "red"]
 plt.figure(figsize=(4,4))
-plt.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors)
+plt.pie([summary_stats["match"], summary_stats["mismatch"]],
+        labels=["Matched", "Mismatched"], autopct='%1.1f%%', colors=["green", "red"])
 plt.title("Comparison Summary")
-plt.savefig("pie_chart.png")
+plt.savefig(os.path.join(output_dir, "pie_chart.png"))
 plt.close()
 
-# HTML report
+# HTML Report
 env = Environment(loader=FileSystemLoader(template_folder))
 template = env.get_template("report_template.html")
 html_out = template.render(
@@ -185,12 +185,13 @@ html_out = template.render(
     mismatched=mismatch_report
 )
 
-with open("comparison_report.html", "w", encoding="utf-8") as f:
+with open(os.path.join(output_dir, "comparison_report.html"), "w", encoding="utf-8") as f:
     f.write(html_out)
 
-print("✅ Reports generated:")
+print("\n✅ Reports generated successfully in 'output' folder:")
 print("- match_report.csv")
 print("- mismatch_report.csv")
 print("- extra_rows_in_before.txt")
 print("- pie_chart.png")
 print("- comparison_report.html")
+print("- screenshots/*.png (proofs for mismatches)")
