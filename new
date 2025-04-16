@@ -8,7 +8,7 @@ txtFolderPath = "C:\Users\e720312\Documents\scripts\Test files"
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-' === Format Time for Subject (one time only) ===
+' === Format Time for Subject ===
 currentTime = Now
 subjectLine = "Test_ABC_" & _
               Day(currentTime) & MonthName(Month(currentTime), True) & Year(currentTime) & "_" & _
@@ -25,12 +25,21 @@ mailItem.Body = "Please find the attached document."
 
 ' === Create TXT File ===
 If Not fso.FolderExists(txtFolderPath) Then
+    ' Folder doesn't exist, create it
+    On Error Resume Next
     fso.CreateFolder(txtFolderPath)
+    If Err.Number <> 0 Then
+        MsgBox "Failed to create folder: " & Err.Description, vbCritical
+        Err.Clear
+        WScript.Quit
+    End If
+    On Error GoTo 0
 End If
 
 txtFileName = subjectLine & ".txt"
 txtFilePath = txtFolderPath & "\" & txtFileName
 
+' Attempt to create and write to the .txt file
 On Error Resume Next
 Set txtFile = fso.CreateTextFile(txtFilePath, True)
 If Err.Number <> 0 Then
@@ -43,7 +52,12 @@ End If
 On Error GoTo 0
 
 ' === Attach the TXT File to Email ===
-mailItem.Attachments.Add txtFilePath
+If fso.FileExists(txtFilePath) Then
+    mailItem.Attachments.Add txtFilePath
+Else
+    MsgBox "Text file not found for attachment.", vbCritical
+    WScript.Quit
+End If
 
 ' === Append to CSV ===
 If Not fso.FileExists(csvPath) Then
