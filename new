@@ -3,8 +3,8 @@ Dim subjectLine, currentTime
 Dim csvPath, fileStream, txtFile, txtFolderPath, txtFileName, txtFilePath
 
 ' === Paths ===
-csvPath = "C:\Users\e720312\Documents\scripts\EmailLog.csv"
-txtFolderPath = "C:\Users\e720312\Documents\scripts\Test files"
+csvPath = "C:\Users\Documents\scripts\EmailLog.csv"
+txtFolderPath = "C:\Users\Documents\scripts\Test files"
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 
