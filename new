@@ -10,10 +10,20 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 ' === Format Time for Subject ===
 currentTime = Now
-subjectLine = "Test_ABC_" & _
-              Day(currentTime) & MonthName(Month(currentTime), True) & Year(currentTime) & "_" & _
-              Right("0" & Hour(currentTime), 2) & Right("0" & Minute(currentTime), 2) & Right("0" & Second(currentTime), 2) & _
-              IIf(Hour(currentTime) < 12, "AM", "PM")
+Dim dayPart, timePart, hourPart, minutePart, secondPart, ampmPart
+dayPart = Day(currentTime) & MonthName(Month(currentTime), True) & Year(currentTime)
+hourPart = Right("0" & Hour(currentTime), 2)
+minutePart = Right("0" & Minute(currentTime), 2)
+secondPart = Right("0" & Second(currentTime), 2)
+
+If Hour(currentTime) < 12 Then
+    ampmPart = "AM"
+Else
+    ampmPart = "PM"
+End If
+
+' Combine everything to form the subject line
+subjectLine = "Test_ABC_" & dayPart & "_" & hourPart & minutePart & secondPart & ampmPart
 
 ' === Prepare Email ===
 Set outlookApp = CreateObject("Outlook.Application")
@@ -25,21 +35,12 @@ mailItem.Body = "Please find the attached document."
 
 ' === Create TXT File ===
 If Not fso.FolderExists(txtFolderPath) Then
-    ' Folder doesn't exist, create it
-    On Error Resume Next
     fso.CreateFolder(txtFolderPath)
-    If Err.Number <> 0 Then
-        MsgBox "Failed to create folder: " & Err.Description, vbCritical
-        Err.Clear
-        WScript.Quit
-    End If
-    On Error GoTo 0
 End If
 
 txtFileName = subjectLine & ".txt"
 txtFilePath = txtFolderPath & "\" & txtFileName
 
-' Attempt to create and write to the .txt file
 On Error Resume Next
 Set txtFile = fso.CreateTextFile(txtFilePath, True)
 If Err.Number <> 0 Then
@@ -52,12 +53,7 @@ End If
 On Error GoTo 0
 
 ' === Attach the TXT File to Email ===
-If fso.FileExists(txtFilePath) Then
-    mailItem.Attachments.Add txtFilePath
-Else
-    MsgBox "Text file not found for attachment.", vbCritical
-    WScript.Quit
-End If
+mailItem.Attachments.Add txtFilePath
 
 ' === Append to CSV ===
 If Not fso.FileExists(csvPath) Then
