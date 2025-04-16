@@ -1,197 +1,62 @@
-# Required packages
-import os
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from jinja2 import Environment, FileSystemLoader
-import numpy as np
-import matplotlib.patches as mpatches
-import matplotlib.gridspec as gridspec
-from PIL import Image
+Dim outlookApp, mailItem, fso
+Dim subjectLine, currentTime
+Dim csvPath, fileStream, txtFile, txtFolderPath, txtFileName, txtFilePath
 
-# Paths
-before_folder = "before"
-after_folder = "after"
-output_dir = "output"
-template_folder = os.path.join(output_dir, "templates")
-screenshot_dir = os.path.join(output_dir, "screenshots")
-os.makedirs(output_dir, exist_ok=True)
-os.makedirs(template_folder, exist_ok=True)
-os.makedirs(screenshot_dir, exist_ok=True)
+' === Paths ===
+csvPath = "C:\Users\e720312\Documents\scripts\EmailLog.csv"
+txtFolderPath = "C:\Users\e720312\Documents\scripts\Test files"
 
-# Output data
-match_report = []
-mismatch_report = []
-extra_rows_info = []
-summary_stats = {"match": 0, "mismatch": 0}
+Set fso = CreateObject("Scripting.FileSystemObject")
 
-# HTML template
-with open(os.path.join(template_folder, "report_template.html"), "w") as f:
-    f.write("""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>CSV Comparison Report</title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .pie-chart { width: 400px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <h1>CSV Comparison Report</h1>
-    <h2>Summary</h2>
-    <p>Total Files Compared: {{ total }}</p>
-    <p>Matched Files: {{ match }}</p>
-    <p>Mismatched Files: {{ mismatch }}</p>
-    <div class="pie-chart">
-        <img src="pie_chart.png" alt="Pie Chart">
-    </div>
+' === Format Time for Subject (one time only) ===
+currentTime = Now
+subjectLine = "Test_ABC_" & _
+              Day(currentTime) & MonthName(Month(currentTime), True) & Year(currentTime) & "_" & _
+              Right("0" & Hour(currentTime), 2) & Right("0" & Minute(currentTime), 2) & Right("0" & Second(currentTime), 2) & _
+              IIf(Hour(currentTime) < 12, "AM", "PM")
 
-    <h2>Matched Files</h2>
-    <table>
-        <tr><th>File Name</th><th>Status</th><th>Total Rows</th><th>Missing Rows</th></tr>
-        {% for row in matched %}
-        <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td></tr>
-        {% endfor %}
-    </table>
+' === Prepare Email ===
+Set outlookApp = CreateObject("Outlook.Application")
+Set mailItem = outlookApp.CreateItem(0)
 
-    <h2>Mismatched Files</h2>
-    <table>
-        <tr><th>File Name</th><th>Row Number</th><th>Column</th><th>Reason</th><th>Proof</th></tr>
-        {% for row in mismatched %}
-        <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td><td><img src="screenshots/{{ row[4] }}" width="400"></td></tr>
-        {% endfor %}
-    </table>
-</body>
-</html>
-""")
+mailItem.To = "receiver@example.com"
+mailItem.Subject = subjectLine
+mailItem.Body = "Please find the attached document."
 
-def normalize(val):
-    if isinstance(val, str):
-        val = val.strip()
-        val = val.replace(",", "")
-        if "/" in val and len(val.split("/")) == 3:
-            parts = [p.zfill(2) for p in val.split("/")]
-            val = "/".join(parts)
-    return val
+' === Create TXT File ===
+If Not fso.FolderExists(txtFolderPath) Then
+    fso.CreateFolder(txtFolderPath)
+End If
 
-def generate_screenshot(df1, df2, mismatch_idx, mismatch_col, file_name):
-    fig = plt.figure(figsize=(12, 2))
-    gs = gridspec.GridSpec(1, 2)
+txtFileName = subjectLine & ".txt"
+txtFilePath = txtFolderPath & "\" & txtFileName
 
-    ax1 = plt.subplot(gs[0, 0])
-    ax2 = plt.subplot(gs[0, 1])
+On Error Resume Next
+Set txtFile = fso.CreateTextFile(txtFilePath, True)
+If Err.Number <> 0 Then
+    MsgBox "Failed to create text file: " & Err.Description, vbCritical
+    Err.Clear
+Else
+    txtFile.WriteLine "Performance testing - " & subjectLine
+    txtFile.Close
+End If
+On Error GoTo 0
 
-    df1_row = df1.iloc[mismatch_idx].to_frame().T
-    df2_row = df2.iloc[mismatch_idx].to_frame().T
+' === Attach the TXT File to Email ===
+mailItem.Attachments.Add txtFilePath
 
-    sns.heatmap(pd.isnull(df1_row), cbar=False, ax=ax1, annot=df1_row.values, fmt='', cmap="Reds")
-    sns.heatmap(pd.isnull(df2_row), cbar=False, ax=ax2, annot=df2_row.values, fmt='', cmap="Reds")
-    ax1.set_title("Before")
-    ax2.set_title("After")
+' === Append to CSV ===
+If Not fso.FileExists(csvPath) Then
+    Set fileStream = fso.CreateTextFile(csvPath, True)
+    fileStream.WriteLine "EmailSubject"
+    fileStream.Close
+End If
 
-    ax1.tick_params(left=False, bottom=False)
-    ax2.tick_params(left=False, bottom=False)
+Set fileStream = fso.OpenTextFile(csvPath, 8, True) ' 8 = ForAppending
+fileStream.WriteLine subjectLine
+fileStream.Close
 
-    for ax in [ax1, ax2]:
-        ax.set_xticklabels(df1.columns, rotation=45, ha='right')
-        ax.set_yticks([])
+' === Display or Send Email ===
+mailItem.Display  ' Change to mailItem.Send to send directly
 
-    screenshot_name = f"{file_name.replace('.csv','')}_row{mismatch_idx}_{mismatch_col}.png"
-    plt.tight_layout()
-    plt.savefig(os.path.join(screenshot_dir, screenshot_name))
-    plt.close()
-    return screenshot_name
-
-def compare_csv(file_name):
-    path_before = os.path.join(before_folder, file_name)
-    path_after = os.path.join(after_folder, file_name)
-
-    try:
-        df_before = pd.read_csv(path_before, dtype=str).fillna("NaN").applymap(normalize)
-        df_after = pd.read_csv(path_after, dtype=str).fillna("NaN").applymap(normalize)
-    except Exception as e:
-        mismatch_report.append([file_name, "N/A", "N/A", f"Read error: {e}", ""])
-        summary_stats["mismatch"] += 1
-        return
-
-    if list(df_before.columns) != list(df_after.columns):
-        extra_cols = set(df_after.columns) - set(df_before.columns)
-        for col in extra_cols:
-            mismatch_report.append([file_name, "N/A", col, "Extra column in AFTER", ""])
-        summary_stats["mismatch"] += 1
-        return
-
-    df_before.sort_values(by=list(df_before.columns), inplace=True, ignore_index=True)
-    df_after.sort_values(by=list(df_after.columns), inplace=True, ignore_index=True)
-
-    if len(df_after) > len(df_before):
-        mismatch_report.append([file_name, "N/A", "N/A", "AFTER has more rows than BEFORE", ""])
-        summary_stats["mismatch"] += 1
-        return
-
-    has_mismatch = False
-    for idx in range(len(df_after)):
-        row_before = df_before.iloc[idx]
-        row_after = df_after.iloc[idx]
-        for col in df_before.columns:
-            if row_before[col] != row_after[col]:
-                screenshot_file = generate_screenshot(df_before, df_after, idx, col, file_name)
-                mismatch_report.append([file_name, idx, col,
-                    f"Mismatch | Before: {row_before[col]} | After: {row_after[col]}", screenshot_file])
-                has_mismatch = True
-
-    extra_rows = list(range(len(df_after), len(df_before)))
-    if extra_rows:
-        extra_rows_info.append(f"File: {file_name}\nExtra rows in BEFORE: {extra_rows}\n{'*'*50}\n")
-
-    if has_mismatch:
-        summary_stats["mismatch"] += 1
-    else:
-        match_report.append([file_name, "Match", len(df_before), extra_rows if extra_rows else "None"])
-        summary_stats["match"] += 1
-
-# Run comparisons
-common_files = sorted(set(os.listdir(before_folder)).intersection(os.listdir(after_folder)))
-for file in common_files:
-    if file.endswith(".csv"):
-        compare_csv(file)
-
-# Save reports
-pd.DataFrame(match_report, columns=["File Name", "Status", "Total Rows in BEFORE", "Missing Rows in AFTER"]).to_csv(os.path.join(output_dir, "match_report.csv"), index=False)
-pd.DataFrame(mismatch_report, columns=["File Name", "Row Number", "Column Name", "Mismatch Reason", "Proof"]).to_csv(os.path.join(output_dir, "mismatch_report.csv"), index=False)
-with open(os.path.join(output_dir, "extra_rows_in_before.txt"), "w") as f:
-    f.writelines(extra_rows_info)
-
-# Pie chart
-plt.figure(figsize=(4,4))
-plt.pie([summary_stats["match"], summary_stats["mismatch"]],
-        labels=["Matched", "Mismatched"], autopct='%1.1f%%', colors=["green", "red"])
-plt.title("Comparison Summary")
-plt.savefig(os.path.join(output_dir, "pie_chart.png"))
-plt.close()
-
-# HTML Report
-env = Environment(loader=FileSystemLoader(template_folder))
-template = env.get_template("report_template.html")
-html_out = template.render(
-    total=summary_stats["match"] + summary_stats["mismatch"],
-    match=summary_stats["match"],
-    mismatch=summary_stats["mismatch"],
-    matched=match_report,
-    mismatched=mismatch_report
-)
-
-with open(os.path.join(output_dir, "comparison_report.html"), "w", encoding="utf-8") as f:
-    f.write(html_out)
-
-print("\n✅ Reports generated successfully in 'output' folder:")
-print("- match_report.csv")
-print("- mismatch_report.csv")
-print("- extra_rows_in_before.txt")
-print("- pie_chart.png")
-print("- comparison_report.html")
-print("- screenshots/*.png (proofs for mismatches)")
+MsgBox "Email ready, subject logged, and text file created!", 64
